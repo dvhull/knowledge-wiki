@@ -1,4 +1,5 @@
 import asyncio
+import shlex
 import sys
 
 import llm
@@ -6,9 +7,12 @@ from environment import Environment
 from skills import (
     default_skill_dirs,
     discover_skills,
+    discover_python_scripts,
     format_skills_for_prompt,
+    parse_script_command,
     parse_skill_command,
     render_skill_invocation,
+    resolve_python_script,
 )
 from system_prompt import BuildSystemPromptOptions, build_system_prompt, load_default_context_files
 from tools import Tools
@@ -40,6 +44,30 @@ async def main() -> None:
     while True:
         # Get the user's goal from stdin and reset the environment.
         user_goal = _read_user_goal()
+        if not user_goal:
+            break
+
+        script_command = parse_script_command(user_goal)
+        if script_command is not None:
+            if script_command.action == "list":
+                scripts = discover_python_scripts(skill_catalog, script_command.query)
+                if scripts:
+                    print("Available skill Python scripts:")
+                    for script in scripts:
+                        print(f"- {script.skill_name}/{script.relative_path}")
+                else:
+                    print("No matching skill Python scripts found.")
+                continue
+            
+            try:
+                script = resolve_python_script(skill_catalog, script_command)
+                script_path = script.file_path.relative_to(env.workspace).as_posix()
+                command = shlex.join([sys.executable, script_path, *script_command.args])
+                print(tools.bash(command))
+            except Exception as exc:
+                print(f"script error: {type(exc).__name__}: {exc}")
+            continue
+
         skill_command = parse_skill_command(user_goal)
         if skill_command is not None:
             skill = skill_catalog.by_name().get(skill_command.name)

@@ -30,6 +30,25 @@ explicitly invoking `/skill:name your request`.
 Put skill-specific helper scripts inside that skill's folder so the skill stays
 portable.
 
+Keep executable code in separate files such as `scripts/*.py`; `SKILL.md`
+should describe when and how to use those files, not contain the script source.
+
 The included `example` skill has `disable-model-invocation: true`, so it is
 available for `/skill:example ...` testing without appearing in the automatic
 skill list.
+
+## Direct Python Script Commands
+
+Loading a skill does not execute scripts. Scripts only run when you explicitly
+use a `/script` command.
+
+```text
+/scripts
+/scripts example
+/script list example
+/script example/scripts/hello.py hello there
+/script:example/scripts/hello.py hello there
+```
+
+Script execution is constrained to `.py` files inside discovered skill
+directories.

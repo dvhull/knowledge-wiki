@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import shlex
 import textwrap
 
 _VALID_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
@@ -38,6 +39,22 @@ class SkillCatalog:
 class SkillCommand:
     name: str
     args: str
+
+
+@dataclass(frozen=True)
+class SkillScript:
+    skill_name: str
+    relative_path: str
+    file_path: Path
+
+
+@dataclass(frozen=True)
+class ScriptCommand:
+    action: str
+    query: str = ""
+    skill_name: str = ""
+    relative_path: str = ""
+    args: tuple[str, ...] = ()
 
 
 def default_skill_dirs(workspace: Path) -> tuple[Path, ...]:
@@ -122,6 +139,70 @@ def parse_skill_command(text: str) -> SkillCommand | None:
     return SkillCommand(name=name, args=args.strip())
 
 
+def parse_script_command(text: str) -> ScriptCommand | None:
+    """Parse direct Python script commands for discovered skills.
+
+    Supported forms:
+    - `/scripts [query]`
+    - `/script list [query]`
+    - `/script:list [query]`
+    - `/script <skill>/<relative/path.py> [args...]`
+    - `/script:<skill>/<relative/path.py> [args...]`
+    - `/script <skill> [args...]` when the skill has exactly one Python script
+    - `/script:<skill> [args...]` when the skill has exactly one Python script
+    """
+
+    stripped = text.strip()
+    if stripped == "/scripts" or stripped.startswith("/scripts "):
+        _, _, query = stripped.partition(" ")
+        return ScriptCommand(action="list", query=query.strip())
+
+    if not stripped.startswith("/script"):
+        return None
+
+    rest = stripped[len("/script") :]
+    if rest.startswith(":"):
+        rest = rest[1:].strip()
+    elif rest.startswith(" "):
+        rest = rest.strip()
+    else:
+        return None
+    if not rest:
+        return ScriptCommand(action="list")
+
+    head, _, tail = rest.partition(" ")
+    if head == "list":
+        return ScriptCommand(action="list", query=tail.strip())
+
+    try:
+        parts = shlex.split(rest)
+    except ValueError:
+        return None
+    if not parts:
+        return ScriptCommand(action="list")
+
+    target = parts[0]
+    args = tuple(parts[1:])
+
+    if "/" in target:
+        skill_name, relative_path = target.split("/", 1)
+    else:
+        skill_name, relative_path = target, ""
+
+    skill_name = skill_name.strip()
+    relative_path = relative_path.strip()
+    if not skill_name or not _VALID_NAME.match(skill_name):
+        return None
+    if relative_path and not relative_path.endswith(".py"):
+        return None
+    return ScriptCommand(
+        action="run",
+        skill_name=skill_name,
+        relative_path=relative_path,
+        args=args,
+    )
+
+
 def render_skill_invocation(skill: Skill, args: str, *, workspace: Path) -> str:
     """Load full skill content for an explicit slash invocation."""
 
@@ -137,6 +218,58 @@ User request for this skill:
 {args.strip() or "(no additional request text provided)"}
 """
     return textwrap.dedent(rendered).strip()
+
+
+def discover_python_scripts(catalog: SkillCatalog, query: str = "") -> tuple[SkillScript, ...]:
+    """Find Python scripts contained inside discovered skill directories."""
+
+    normalized_query = query.strip().lower()
+    scripts: list[SkillScript] = []
+    for skill in catalog.skills:
+        for path in sorted(skill.base_dir.rglob("*.py")):
+            try:
+                relative = path.resolve().relative_to(skill.base_dir).as_posix()
+            except ValueError:
+                continue
+            if any(part in _IGNORED_DIRS or part.startswith(".") for part in Path(relative).parts):
+                continue
+            script = SkillScript(
+                skill_name=skill.name,
+                relative_path=relative,
+                file_path=path.resolve(),
+            )
+            haystack = f"{script.skill_name} {script.relative_path}".lower()
+            if normalized_query and normalized_query not in haystack:
+                continue
+            scripts.append(script)
+
+    return tuple(sorted(scripts, key=lambda s: (s.skill_name, s.relative_path)))
+
+
+def resolve_python_script(catalog: SkillCatalog, command: ScriptCommand) -> SkillScript:
+    """Resolve a run command to a Python script within a skill directory."""
+
+    if command.action != "run":
+        raise ValueError("script command is not a run command")
+    skill = catalog.by_name().get(command.skill_name)
+    if skill is None:
+        raise ValueError(f"unknown skill: {command.skill_name}")
+
+    scripts = [script for script in discover_python_scripts(catalog) if script.skill_name == skill.name]
+    if command.relative_path:
+        for script in scripts:
+            if script.relative_path == command.relative_path:
+                return script
+        raise ValueError(f"script not found in skill {skill.name}: {command.relative_path}")
+
+    if len(scripts) == 1:
+        return scripts[0]
+    if not scripts:
+        raise ValueError(f"skill {skill.name} has no Python scripts")
+    raise ValueError(
+        f"skill {skill.name} has multiple Python scripts; specify one like "
+        f"/script:{skill.name}/{scripts[0].relative_path}"
+    )
 
 
 def _find_skill_files(root: Path) -> list[Path]:
