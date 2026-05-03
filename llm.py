@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -124,8 +125,30 @@ def _serialize_state(state: Mapping[str, Any], *, max_chars: int = 60_000) -> st
     return text[:max_chars] + "\n...[state json truncated]"
 
 
+def _load_dotenv(path: Path = Path(".env")) -> None:
+    """Load simple KEY=VALUE lines from .env without overriding the real environment."""
+    if not path.is_file():
+        return
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = value.strip().strip("'\"")
+        os.environ[key] = value
+
+
 class LLM:
     def __init__(self, model: str | None = None) -> None:
+        _load_dotenv()
         self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4.1")
         self.client = AsyncOpenAI()
 
@@ -186,13 +209,11 @@ class LLM:
 
 _default: LLM | None = None
 
-
 def _get() -> LLM:
     global _default
     if _default is None:
         _default = LLM()
     return _default
-
 
 async def run(system_prompt: str, state: Mapping[str, Any]) -> dict[str, Any]:
     return await _get().run(system_prompt, state)

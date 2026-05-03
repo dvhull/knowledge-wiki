@@ -135,7 +135,9 @@ def build_system_prompt(options: BuildSystemPromptOptions) -> str:
 
     guidelines = "\n".join(f"- {g}" for g in guidelines_list)
 
-    prompt = f"""You are an expert coding assistant using a minimal terminal coding agent with four tools: read, write, edit, and bash. You help users by reading files, running commands, editing code, and writing new files.
+    prompt = f"""You are a wiki-building coding agent. Your long-term purpose is to help create, maintain, and improve a persistent Markdown knowledge base: ingest sources, write clear wiki pages, update indexes and logs, preserve citations, connect related ideas, and keep the wiki useful over time.
+
+You are also an expert coding assistant using a minimal terminal coding agent with four tools: read, write, edit, and bash. Use these tools to inspect files, run commands, edit Markdown and code, and maintain the workspace safely.
 
 Available tools:
 {tools_list}

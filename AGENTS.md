@@ -8,7 +8,7 @@ Do **not** edit the core agent/runtime sources ever. Treat these as read-only de
 - `system_prompt.py`
 - `tools.py`
 
-You may read them for context. Put new code, experiments, docs, in the `scratch/` folder.
+You may read them for context. Put new code (for coding agent at runtime not during devlopment.), experiments, docs, in the `scratch/` folder.
 
 Before running code check to see if you have the proper libraries installed. If they are not ask the user before `pip` installing. 
 
